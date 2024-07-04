@@ -1,8 +1,5 @@
 #include <Novice.h>
-#include <Novice.h>
-#include <Novice.h>
 #include"Vector3.h"
-#include"Matrix4x4.h"
 #include"Matrix4x4.h"
 #include<cmath>
 #include"assert.h"
@@ -12,6 +9,12 @@
 
 const char kWindowTitle[] = "LD2B_04_コマツザキ_カガリ_MT3_3_00";
 
+// 球
+struct Sphere
+{
+	Vector3 center;// 中心点
+	float radius;// 半径
+};
 
 // プロトタイプ宣言
 
@@ -49,11 +52,15 @@ Vector3 Perpendicular(const Vector3& vector);
 Vector3 Transform(const Vector3& point, const Matrix4x4& transformMatrix);
 // 線形補間
 Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t);
-// グリッド
-void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix);
+// ベジエ曲線上の点を求める関数
+Vector3 Bezier(const Vector3& p0, const Vector3& p1, const Vector3& p2, float t);
 // ベジエ曲線の描画
 void DrawBezier(const Vector3& controlPoint0, const Vector3& controlPoint1, const Vector3& controlPoint2,
 	const Matrix4x4& viewProjectionMztrix, const Matrix4x4& viewPortMatrix, uint32_t color);
+// グリッド
+void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix);
+// Sphereを描画
+void DrawSphere(const Sphere& sphere, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
 
 // 関数の定義
@@ -338,9 +345,60 @@ Vector3 Normalize(const Vector3& v2)
 // 線形補間
 Vector3 Lerp(const Vector3& v1, const Vector3& v2, float t)
 {
-	return Multiply(t, Add(v1, Multiply((1.0f - t), v2)));
+	Vector3 result;
+
+	result.x = t * v1.x + (1.0f - t) * v2.x;
+	result.y = t * v1.y + (1.0f - t) * v2.y;
+	result.z = t * v1.z + (1.0f - t) * v2.z;
+
+	return result;
 }
 
+// ベジエ曲線上の点を求める関数
+Vector3 Bezier(const Vector3& p0, const Vector3& p1, const Vector3& p2, float t)
+{
+	Vector3 p0p1 = Lerp(p0, p1, t);
+	Vector3 p1p2 = Lerp(p1, p2, t);
+	Vector3 p = Lerp(p0p1, p1p2, t);
+
+	return p;
+}
+
+// ベジエ曲線の描画
+void DrawBezier(const Vector3& controlPoint0, const Vector3& controlPoint1, const Vector3& controlPoint2,
+	const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewPortMatrix, uint32_t color)
+{
+	int num = 32;//分割数
+
+	for (int index = 0; index < num; index++)
+	{
+		float t0 = index / float(num);
+		float t1= (index + 1) / float(num);
+		
+		Vector3 bezier0 = Bezier(controlPoint0, controlPoint1, controlPoint2, t0);
+		Vector3 bezier1 = Bezier(controlPoint0, controlPoint1, controlPoint2, t1);
+
+		// ベジエ曲線の座標変換
+		Vector3 ndcVertexBezier0 = Transform(bezier0, viewProjectionMatrix);// NDC(正規化デバイス座標系)
+		Vector3 screenVerticesBezier0 = Transform(ndcVertexBezier0, viewPortMatrix);// スクリーン座標に変換
+
+		Vector3 ndcVertexBezier1 = Transform(bezier1, viewProjectionMatrix);
+		Vector3 screenVerticesBezier1 = Transform(ndcVertexBezier1, viewPortMatrix);
+
+		// 三点の座標変換
+		Vector3 ndcVertexCP0 = Transform(controlPoint0, viewProjectionMatrix);
+		Vector3 screenVerticesCP0 = Transform(ndcVertexCP0, viewPortMatrix);
+
+		Vector3 ndcVertexCP1 = Transform(controlPoint1, viewProjectionMatrix);
+		Vector3 screenVerticesCP1 = Transform(ndcVertexCP1, viewPortMatrix);
+
+		Vector3 ndcVertexCP2 = Transform(controlPoint2, viewProjectionMatrix);
+		Vector3 screenVerticesCP2 = Transform(ndcVertexCP2, viewPortMatrix);
+		
+		// 変換した座標を使って表示
+		Novice::DrawLine((int)screenVerticesBezier0.x, (int)screenVerticesBezier0.y, (int)screenVerticesBezier1.x, (int)screenVerticesBezier1.y, color);
+	}
+}
 
 // Gridを表示する
 void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix)
@@ -403,37 +461,70 @@ void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMa
 	}
 }
 
-// ベジエ曲線の描画
-void DrawBezier(const Vector3& controlPoint0, const Vector3& controlPoint1, const Vector3& controlPoint2,
-	const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewPortMatrix, uint32_t color)
+// Sphereを表示する疑似コード
+void DrawSphere(const Sphere& sphere, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix)
 {
-	int num = 32;//分割数
+	float pi = float(M_PI);
+	const uint32_t kSubdivision = 20;// 分割数
+	const float kLonEvery = (2.0f * pi) / kSubdivision;// 経度分割1つ分の角度Φd
+	const float kLatEvery = pi / kSubdivision;// 緯度分割1つ分の角度θd
+	// world座標系でのa,b,cを求める
+	Vector3 a, b, c;
 
-	for (int index = 0; index < num; index++)
+	// 経度の方向に分割 -π/2 ～ π/2
+	for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex)
 	{
-		float t0 = index / float(num);
-		float t1= (index + 1) / float(num);
-		Vector3 p0p1 = Lerp(controlPoint0, controlPoint1, t0);
-		Vector3 p1p2 = Lerp(controlPoint1, controlPoint2, t1);
-		Vector3 p = Lerp(p0p1, p1p2, t);
+		float lat = -pi / 2.0f + kLatEvery * latIndex;// 現在の緯度θ
+
+		// 経度の方向に分割 0 ～ 2π
+		for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex)
+		{
+			float lon = lonIndex * kLonEvery;// 現在の経度Φ
+
+			// ワールド座標系での頂点を求める
+			a = {
+				(sphere.radius) * std::cos(lat) * std::cos(lon) + sphere.center.x,
+				(sphere.radius) * std::sin(lat) + sphere.center.y,
+				(sphere.radius) * std::cos(lat) * std::sin(lon) + sphere.center.z
+			};
+
+			b = {
+				(sphere.radius) * std::cos(lat + kLatEvery) * std::cos(lon) + sphere.center.x,
+				(sphere.radius) * std::sin(lat + kLatEvery) + sphere.center.y,
+				(sphere.radius) * std::cos(lat + kLatEvery) * std::sin(lon) + sphere.center.z
+			};
+
+			c = {
+				(sphere.radius) * std::cos(lat) * std::cos(lon + kLonEvery) + sphere.center.x,
+				(sphere.radius) * std::sin(lat) + sphere.center.y,
+				(sphere.radius) * std::cos(lat) * std::sin(lon + kLonEvery) + sphere.center.z
+			};
+
+			// a,b,cをScreen座標系まで変換
+			// スクリーン座標系まで変換をかける
+			Matrix4x4 worldMatrixA = MakeAffineMatrix({ 1.0f,1.0f,1.0f }, { 0.0f,0.0f,0.0f }, a);
+			Matrix4x4 worldMatrixB = MakeAffineMatrix({ 1.0f,1.0f,1.0f }, { 0.0f,0.0f,0.0f }, b);
+			Matrix4x4 worldMatrixC = MakeAffineMatrix({ 1.0f,1.0f,1.0f }, { 0.0f,0.0f,0.0f }, c);
+			// WVPMatrix
+			Matrix4x4 worldViewProjectionMatrixA = MultiplyXYZ(worldMatrixA, viewProjectionMatrix);
+			Matrix4x4 worldViewProjectionMatrixB = MultiplyXYZ(worldMatrixB, viewProjectionMatrix);
+			Matrix4x4 worldViewProjectionMatrixC = MultiplyXYZ(worldMatrixC, viewProjectionMatrix);
+			// NDC(正規化デバイス座標系)
+			Vector3 ndcVertexA = Transform(Vector3{}, worldViewProjectionMatrixA);
+			Vector3 ndcVertexB = Transform(Vector3{}, worldViewProjectionMatrixB);
+			Vector3 ndcVertexC = Transform(Vector3{}, worldViewProjectionMatrixC);
+			// スクリーン座標へ変換
+			Vector3 screenVerticesA = Transform(ndcVertexA, viewportMatrix);
+			Vector3 screenVerticesB = Transform(ndcVertexB, viewportMatrix);
+			Vector3 screenVerticesC = Transform(ndcVertexC, viewportMatrix);
 
 
-		Matrix4x4 worldMatrix01 = MakeAffineMatrix({ 1.0f,1.0f,1.0f }, { 0.0f,0.0f,0.0f }, p0p1);// ワールド座標に変換
-		Matrix4x4 worldViewProjectionMatrix01 = MultiplyXYZ(worldMatrix01, viewProjectionMatrix);// WVPMatrixを作る
-		Vector3 ndcVertex01 = Transform(Vector3{}, worldViewProjectionMatrix01);// NDC(正規化デバイス座標系)
-		Vector3 screenVertices01 = Transform(ndcVertex01, viewPortMatrix);// スクリーン座標に変換
-
-		Matrix4x4 worldMatrix12 = MakeAffineMatrix({ 1.0f,1.0f,1.0f }, { 0.0f,0.0f,0.0f }, p1p2);// ワールド座標に変換
-		Matrix4x4 worldViewProjectionMatrix12 = MultiplyXYZ(worldMatrix01, viewProjectionMatrix);// WVPMatrixを作る
-		Vector3 ndcVertex12 = Transform(Vector3{}, worldViewProjectionMatrix12);// NDC(正規化デバイス座標系)
-		Vector3 screenVertices12 = Transform(ndcVertex12, viewPortMatrix);// スクリーン座標に変換
-
-		// 変換した座標を使って表示
-		Novice::DrawLine((int)screenVertices01.x, (int)screenVertices01.y, (int)screenVertices12.x, (int)screenVertices12.y, color);
+			// ab,acで線を引く
+			Novice::DrawLine((int)screenVerticesA.x, (int)screenVerticesA.y, (int)screenVerticesB.x, (int)screenVerticesB.y, BLACK);
+			Novice::DrawLine((int)screenVerticesA.x, (int)screenVerticesA.y, (int)screenVerticesC.x, (int)screenVerticesC.y, BLACK);
+		}
 	}
 }
-
-
 
 
 // Windowsアプリでのエントリーポイント(main関数)
@@ -452,8 +543,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		{1.76f,1.0f,-0.3f},
 		{0.94f,-0.7f,2.3f},
 	};
-
-	//float sphereRad = 0.005f;
 
 
 	// 画面サイズ
@@ -479,6 +568,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		///
 		/// ↓更新処理ここから
 		///
+		
+		// 球
+		Sphere sphere0{
+			controlPoints[0],
+			0.01f,
+		};
+		Sphere sphere1{
+			controlPoints[1],
+			0.01f,
+		};
+		Sphere sphere2{
+			controlPoints[2],
+			0.01f,
+		};
 
 
 		Matrix4x4 worldMatrix = MakeAffineMatrix(cameraScale, cameraRotate, cameraTranslate);
@@ -490,13 +593,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 worldViewProjectionMatrix = MultiplyXYZ(viewMatrix, projectionMatrix);
 
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowsWidth), float(kWindowsHeight), 0.0f, 1.0f);
-
+		
 
 		// グリッド
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
 
 		// ベジエ曲線
 		DrawBezier(controlPoints[0], controlPoints[1], controlPoints[2], worldViewProjectionMatrix, viewportMatrix, BLUE);
+
+		// スフィア
+		DrawSphere(sphere0, worldViewProjectionMatrix, viewportMatrix);
+		DrawSphere(sphere1, worldViewProjectionMatrix, viewportMatrix);
+		DrawSphere(sphere2, worldViewProjectionMatrix, viewportMatrix);
+
 
 		///
 		/// ↑更新処理ここまで
@@ -506,12 +615,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
-		
-
 		ImGui::Begin("Windou");
 		ImGui::DragFloat("cameraScale", &cameraScale.z, 0.01f);
 		ImGui::DragFloat3("CameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("CameraRotate", &cameraRotate.x, 0.01f);
+		ImGui::DragFloat3("controlPoints[0]", &controlPoints[0].x, 0.01f);
+		ImGui::DragFloat3("controlPoints[1]", &controlPoints[1].x, 0.01f);
+		ImGui::DragFloat3("controlPoints[2]", &controlPoints[2].x, 0.01f);
 		ImGui::End();
 
 		///
